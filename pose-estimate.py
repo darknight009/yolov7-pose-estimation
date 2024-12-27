@@ -1,3 +1,4 @@
+import os
 import cv2
 import time
 import torch
@@ -13,7 +14,7 @@ from utils.plots import output_to_keypoint, plot_skeleton_kpts,colors,plot_one_b
 
 @torch.no_grad()
 def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view_img=False,
-        save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True):
+        save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True, output_path = ""):
 
     frame_count = 0  #count no of frames
     total_fps = 0  #count total fps
@@ -84,8 +85,9 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                 im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR) #reshape image format to (BGR)
                 gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
 
+                data = []
                 for i, pose in enumerate(output_data):  # detections per image
-                
+
                     if len(output_data):  #check if no pose
                         for c in pose[:, 5].unique(): # Print results
                             n = (pose[:, 5] == c).sum()  # detections per class
@@ -94,15 +96,18 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                         for det_index, (*xyxy, conf, cls) in enumerate(reversed(pose[:,:6])): #loop over poses for drawing on frame
                             c = int(cls)  # integer class
                             kpts = pose[det_index, 6:]
+                            data.append(kpts)
                             label = None if opt.hide_labels else (names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
                             plot_one_box_kpt(xyxy, im0, label=label, color=colors(c, True), 
                                         line_thickness=opt.line_thickness,kpt_label=True, kpts=kpts, steps=3, 
                                         orig_shape=im0.shape[:2])
-
                 
-                end_time = time.time()  #Calculatio for FPS
+                end_time = time.time()  #Calculation for FPS
                 fps = 1 / (end_time - start_time)
                 total_fps += fps
+
+                frame_path = os.path.join(output_path, f"frame_{frame_count:05d}.jpg")
+                cv2.imwrite(frame_path, frame)
                 frame_count += 1
                 
                 fps_list.append(total_fps) #append FPS in list
