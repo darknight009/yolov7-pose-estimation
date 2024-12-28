@@ -1,4 +1,5 @@
 import os
+import json
 import cv2
 import time
 import torch
@@ -38,8 +39,8 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
         raise SystemExit()
 
     else:
-        frame_width = int(cap.get(3))  #get video frame width
-        frame_height = int(cap.get(4)) #get video frame height
+        frame_width = 640
+        frame_height = 640
 
         
         vid_write_image = letterbox(cap.read()[1], (frame_width), stride=64, auto=True)[0] #init videowriter
@@ -57,6 +58,7 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
             
             if ret: #if success is true, means frame exist
                 orig_image = frame #store frame
+                orig_image = cv2.resize(orig_image, frame_width, frame_height)
                 image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB) #convert frame to RGB
                 image = letterbox(image, (frame_width), stride=64, auto=True)[0]
                 image_ = image.copy()
@@ -96,7 +98,7 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                         for det_index, (*xyxy, conf, cls) in enumerate(reversed(pose[:,:6])): #loop over poses for drawing on frame
                             c = int(cls)  # integer class
                             kpts = pose[det_index, 6:]
-                            data.append(kpts)
+                            data.append(kpts.tolist())
                             label = None if opt.hide_labels else (names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
                             plot_one_box_kpt(xyxy, im0, label=label, color=colors(c, True), 
                                         line_thickness=opt.line_thickness,kpt_label=True, kpts=kpts, steps=3, 
@@ -105,6 +107,10 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                 end_time = time.time()  #Calculation for FPS
                 fps = 1 / (end_time - start_time)
                 total_fps += fps
+
+                prediction_path = os.path.join(output_path, f"frame_{frame_count:05d}.json")
+                with open(prediction_path, "w") as json_file:
+                  json.dump(data, json_file, indent=4)
 
                 frame_path = os.path.join(output_path, f"frame_{frame_count:05d}.jpg")
                 cv2.imwrite(frame_path, frame)
@@ -136,6 +142,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--poseweights', nargs='+', type=str, default='yolov7-w6-pose.pt', help='model path(s)')
     parser.add_argument('--source', type=str, default='football1.mp4', help='video/0 for webcam') #video source
+    parser.add_argument('--output-path', type=str, default='football1.mp4', help='') #output path
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
     parser.add_argument('--view-img', action='store_true', help='display results')  #display results
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels') #save confidence in txt writing
