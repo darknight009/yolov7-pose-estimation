@@ -15,7 +15,8 @@ from utils.plots import output_to_keypoint, plot_skeleton_kpts,colors,plot_one_b
 
 @torch.no_grad()
 def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view_img=False,
-        save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True, output_path = ""):
+        save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True, 
+        sequence_length = 16, sequence_overlap = 8, output_path = ""):
 
     frame_count = 0  #count no of frames
     total_fps = 0  #count total fps
@@ -42,6 +43,8 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
         frame_width = 640
         frame_height = 640
 
+        sequence_pose = [None]*sequence_length
+        sequence = [None]*sequence_length
         
         vid_write_image = letterbox(cap.read()[1], (frame_width), stride=64, auto=True)[0] #init videowriter
         resize_height, resize_width = vid_write_image.shape[:2]
@@ -58,7 +61,7 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
             
             if ret: #if success is true, means frame exist
                 orig_image = frame #store frame
-                orig_image = cv2.resize(orig_image, frame_width, frame_height)
+                orig_image = cv2.resize(orig_image, (frame_width, frame_height))
                 image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB) #convert frame to RGB
                 image = letterbox(image, (frame_width), stride=64, auto=True)[0]
                 image_ = image.copy()
@@ -108,12 +111,59 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                 fps = 1 / (end_time - start_time)
                 total_fps += fps
 
-                prediction_path = os.path.join(output_path, f"frame_{frame_count:05d}.json")
-                with open(prediction_path, "w") as json_file:
-                  json.dump(data, json_file, indent=4)
+                if frame_count//sequence_length == 0:
+                  for i in range(1+(frame_count%sequence_length)):
+                    if not sequence_pose[i]:
+                      sequence_pose[i] = []
+                    sequence_pose[i].append(data)
 
-                frame_path = os.path.join(output_path, f"frame_{frame_count:05d}.jpg")
-                cv2.imwrite(frame_path, frame)
+                    if not sequence[i]:
+                      sequence[i] = []
+                    sequence[i].append(im0)
+
+                if frame_count//sequence_length > 0:
+                
+                  for seq in sequence_pose:
+                    seq.append(data)
+                  
+                  for seq in sequence:
+                    seq.append(im0)
+
+                  if frame_count % sequence_overlap == 0:
+                    prediction_path = os.path.join(output_path, f"frame_{frame_count:05d}.json")
+                    with open(prediction_path, "w") as json_file:
+                        json.dump(sequence_pose[0], json_file, indent=4)
+
+                    # Ensure proper frame dimensions for VideoWriter
+                    if sequence[0] and sequence[0][0] is not None:
+                        frame_height, frame_width = sequence[0][0].shape[:2]
+                        seq_length_vid = cv2.VideoWriter(
+                            os.path.join(output_path, f"{frame_count}.mp4"),
+                            cv2.VideoWriter_fourcc(*'mp4v'),
+                            30,
+                            (frame_width, frame_height)
+                        )
+
+                        try:
+                            for seq in sequence[0]:
+                                if seq is not None:
+                                    seq_length_vid.write(seq)
+                                else:
+                                    print("Skipped empty frame")
+                        finally:
+                            seq_length_vid.release()
+
+                    else:
+                        print("No valid frames to write for this sequence")
+
+                    # Update sequences for the next batch
+                    sequence_pose.pop(0)
+                    sequence_pose.append([])
+                    sequence.pop(0)
+                    sequence.append([])
+
+                # frame_path = os.path.join(output_path, f"frame_{frame_count:05d}.jpg")
+                # cv2.imwrite(frame_path, frame)
                 frame_count += 1
                 
                 fps_list.append(total_fps) #append FPS in list
@@ -170,3 +220,4 @@ if __name__ == "__main__":
     opt = parse_opt()
     strip_optimizer(opt.device,opt.poseweights)
     main(opt)
+
