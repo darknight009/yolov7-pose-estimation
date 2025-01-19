@@ -2,6 +2,7 @@ import os
 import json
 import cv2
 import time
+from numpy.lib import hamming
 import torch
 import argparse
 import numpy as np
@@ -12,6 +13,7 @@ from utils.torch_utils import select_device
 from models.experimental import attempt_load
 from utils.general import non_max_suppression_kpt,strip_optimizer,xyxy2xywh
 from utils.plots import output_to_keypoint, plot_skeleton_kpts,colors,plot_one_box_kpt
+from deep_sort_realtime.deepsort_tracker import DeepSort
 
 @torch.no_grad()
 def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view_img=False,
@@ -30,6 +32,7 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
     _ = model.eval()
     names = model.module.names if hasattr(model, 'module') else model.names  # get class names
    
+    deepsort = DeepSort(max_age = 30)
     if source.isnumeric() :    
         cap = cv2.VideoCapture(int(source))    #pass video to videocapture object
     else :
@@ -90,7 +93,8 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                 im0 = cv2.cvtColor(im0, cv2.COLOR_RGB2BGR) #reshape image format to (BGR)
                 gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
 
-                data = []
+                results = []
+                pose_bb_map = {}
                 for i, pose in enumerate(output_data):  # detections per image
 
                     if len(output_data):  #check if no pose
@@ -101,11 +105,24 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                         for det_index, (*xyxy, conf, cls) in enumerate(reversed(pose[:,:6])): #loop over poses for drawing on frame
                             c = int(cls)  # integer class
                             kpts = pose[det_index, 6:]
-                            data.append(kpts.tolist())
+                            xmin, ymin, xmax, ymax = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                            # add the bounding box (x, y, w, h), confidence and class id to the results list
+                            results.append([[xmin, ymin, xmax - xmin, ymax - ymin], conf, cls])
+                            pose_bb_map[(xmin, ymin, xmax - xmin, ymax - ymin)] = kpts.tolist()
                             label = None if opt.hide_labels else (names[c] if opt.hide_conf else f'{names[c]} {conf:.2f}')
                             plot_one_box_kpt(xyxy, im0, label=label, color=colors(c, True), 
                                         line_thickness=opt.line_thickness,kpt_label=True, kpts=kpts, steps=3, 
                                         orig_shape=im0.shape[:2])
+                
+                data = []
+                tracks = deepsort.update_tracks(results, frame=frame)
+                for track in tracks:
+                  if not track.is_confirmed() or track.original_ltwh is None:
+                    continue
+                  track_id = track.track_id
+                  x, y, w, h = track.original_ltwh
+                  data.append(int(track_id))
+                  data.append(pose_bb_map[(x,y,w,h)])
                 
                 end_time = time.time()  #Calculation for FPS
                 fps = 1 / (end_time - start_time)
