@@ -2,7 +2,6 @@ import os
 import json
 import cv2
 import time
-from numpy.lib import hamming
 import torch
 import argparse
 import numpy as np
